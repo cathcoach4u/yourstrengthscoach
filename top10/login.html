@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sign in &middot; Top 10 Strengths</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container container--narrow">
+    <div class="card">
+      <h1>Top 10 Strengths</h1>
+      <p style="color:var(--c-muted);margin-top:0">Sign in to view or update your top 10.</p>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password" />
+        </div>
+        <div id="error-msg" class="alert alert-error" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+        <p style="text-align:center;margin-top:14px;font-size:0.875rem">
+          <a href="forgot-password.html">Forgot password?</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const SUPABASE_URL      = 'https://eekefsuaefgpqmjdyniy.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_pcXHwQVMpvEojb4K3afEMw_RMvgZM-Y';
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Already signed in? Skip the form.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) window.location.href = 'index.html';
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email    = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const errEl    = document.getElementById('error-msg');
+      errEl.style.display = 'none';
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        errEl.textContent = error.message;
+        errEl.style.display = 'block';
+      } else {
+        window.location.href = 'index.html';
+      }
+    });
+  </script>
+</body>
+</html>

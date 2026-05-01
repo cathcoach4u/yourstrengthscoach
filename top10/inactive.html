@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Membership inactive &middot; Top 10 Strengths</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container container--narrow">
+    <div class="card">
+      <h1>Membership inactive</h1>
+      <p>Your account isn't currently active. Please get in touch with your coach to enable access.</p>
+      <p><a href="login.html">Back to sign in</a></p>
+      <button id="signout" class="btn btn-secondary" style="margin-top:8px">Sign out</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+    const supabase = createClient(
+      'https://eekefsuaefgpqmjdyniy.supabase.co',
+      'sb_publishable_pcXHwQVMpvEojb4K3afEMw_RMvgZM-Y'
+    );
+    document.getElementById('signout').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'login.html';
+    });
+  </script>
+</body>
+</html>

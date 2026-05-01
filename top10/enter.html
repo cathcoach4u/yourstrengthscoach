@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Enter your Top 10 &middot; Strengths</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin:0">Enter Top 10</h1>
+      <nav class="header__nav">
+        <a href="index.html">View report</a>
+        <a href="#" id="signout">Sign out</a>
+      </nav>
+    </div>
+
+    <div class="card">
+      <p style="margin-top:0;color:var(--c-muted)">
+        Pick your top 10 Gallup strengths in ranked order (1 = strongest).
+        Add Name &middot; Claim &middot; Aim notes for each one — these power your coaching report.
+      </p>
+
+      <form id="top10-form">
+        <div id="rows"></div>
+
+        <div id="form-msg" class="alert" style="display:none;margin-top:16px"></div>
+
+        <div style="display:flex;gap:12px;margin-top:20px">
+          <button type="submit" class="btn btn-primary">Save Top 10</button>
+          <a href="index.html" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const SUPABASE_URL      = 'https://eekefsuaefgpqmjdyniy.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_pcXHwQVMpvEojb4K3afEMw_RMvgZM-Y';
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ---- 1. Auth + membership gate ----
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = 'login.html'; throw new Error('redirecting'); }
+
+    const userId = session.user.id;
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('membership_status')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.membership_status !== 'active') {
+      window.location.href = 'inactive.html';
+      throw new Error('redirecting');
+    }
+
+    // ---- 2. Load catalog (34 themes) and existing top 10 ----
+    const [{ data: catalog, error: catErr }, { data: existing, error: exErr }] = await Promise.all([
+      supabase.from('strengths_catalog').select('id,name,domain').order('name'),
+      supabase.from('user_top_strengths').select('rank,strength_id,name_it,claim_it,aim_it').eq('user_id', userId).order('rank')
+    ]);
+
+    if (catErr || exErr) {
+      showMsg('error', (catErr || exErr).message);
+      throw new Error('load failed');
+    }
+
+    const existingByRank = new Map((existing || []).map(r => [r.rank, r]));
+
+    // ---- 3. Render 10 rows ----
+    const rowsEl = document.getElementById('rows');
+    for (let rank = 1; rank <= 10; rank++) {
+      const prev = existingByRank.get(rank);
+      const row = document.createElement('div');
+      row.className = 'rank-row';
+      row.innerHTML = `
+        <div><span class="rank-badge">${rank}</span></div>
+        <div>
+          <div class="form-group">
+            <label for="strength-${rank}">Strength #${rank}</label>
+            <select id="strength-${rank}" data-rank="${rank}" class="strength-select" required>
+              <option value="">— Select a strength —</option>
+              ${catalog.map(s => `
+                <option value="${s.id}" ${prev && prev.strength_id === s.id ? 'selected' : ''}>
+                  ${s.name} (${s.domain})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="notes-grid">
+            <div class="form-group">
+              <label>Name it</label>
+              <textarea data-field="name_it" data-rank="${rank}" rows="2" placeholder="What does this strength look like in you?">${prev?.name_it ?? ''}</textarea>
+            </div>
+            <div class="form-group">
+              <label>Claim it</label>
+              <textarea data-field="claim_it" data-rank="${rank}" rows="2" placeholder="How do you own this and use it?">${prev?.claim_it ?? ''}</textarea>
+            </div>
+            <div class="form-group">
+              <label>Aim it</label>
+              <textarea data-field="aim_it" data-rank="${rank}" rows="2" placeholder="Where will you point this strength next?">${prev?.aim_it ?? ''}</textarea>
+            </div>
+          </div>
+        </div>
+      `;
+      rowsEl.appendChild(row);
+    }
+
+    // ---- 4. Save handler ----
+    document.getElementById('top10-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true;
+
+      const rows = [];
+      for (let rank = 1; rank <= 10; rank++) {
+        const strengthId = parseInt(document.getElementById(`strength-${rank}`).value, 10);
+        if (!strengthId) {
+          showMsg('error', `Please pick a strength for rank ${rank}.`);
+          btn.disabled = false; return;
+        }
+        rows.push({
+          user_id: userId,
+          rank,
+          strength_id: strengthId,
+          name_it:  document.querySelector(`textarea[data-field=name_it][data-rank="${rank}"]`).value || null,
+          claim_it: document.querySelector(`textarea[data-field=claim_it][data-rank="${rank}"]`).value || null,
+          aim_it:   document.querySelector(`textarea[data-field=aim_it][data-rank="${rank}"]`).value || null,
+          updated_at: new Date().toISOString()
+        });
+      }
+
+      // Reject duplicate strengths
+      const ids = rows.map(r => r.strength_id);
+      if (new Set(ids).size !== ids.length) {
+        showMsg('error', 'Each strength can only appear once. Please remove duplicates.');
+        btn.disabled = false; return;
+      }
+
+      // Replace-all: delete existing rows for this user, then insert the new 10.
+      const { error: delErr } = await supabase.from('user_top_strengths').delete().eq('user_id', userId);
+      if (delErr) { showMsg('error', delErr.message); btn.disabled = false; return; }
+
+      const { error: insErr } = await supabase.from('user_top_strengths').insert(rows);
+      if (insErr) { showMsg('error', insErr.message); btn.disabled = false; return; }
+
+      showMsg('success', 'Saved. Redirecting to your report…');
+      setTimeout(() => window.location.href = 'index.html', 900);
+    });
+
+    document.getElementById('signout').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await supabase.auth.signOut();
+      window.location.href = 'login.html';
+    });
+
+    function showMsg(kind, text) {
+      const el = document.getElementById('form-msg');
+      el.className = 'alert alert-' + kind;
+      el.textContent = text;
+      el.style.display = 'block';
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  </script>
+</body>
+</html>

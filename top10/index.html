@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>My Top 10 Strengths</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin:0">My Top 10 Strengths</h1>
+      <nav class="header__nav">
+        <a href="enter.html" id="edit-link">Edit</a>
+        <a href="#" id="signout">Sign out</a>
+      </nav>
+    </div>
+
+    <div id="content">
+      <p style="color:var(--c-muted)">Loading…</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const SUPABASE_URL      = 'https://eekefsuaefgpqmjdyniy.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_pcXHwQVMpvEojb4K3afEMw_RMvgZM-Y';
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ---- 1. Auth + membership gate ----
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = 'login.html'; throw new Error('redirecting'); }
+
+    const userId = session.user.id;
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('membership_status')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.membership_status !== 'active') {
+      window.location.href = 'inactive.html';
+      throw new Error('redirecting');
+    }
+
+    // ---- 2. Load top 10 (joined to catalog via the view) ----
+    const { data: rows, error } = await supabase
+      .from('user_top_strengths_view')
+      .select('rank,strength_name,strength_domain,name_it,claim_it,aim_it,updated_at')
+      .eq('user_id', userId)
+      .order('rank');
+
+    const content = document.getElementById('content');
+
+    if (error) {
+      content.innerHTML = `<div class="alert alert-error">${error.message}</div>`;
+      throw error;
+    }
+
+    if (!rows || rows.length === 0) {
+      content.innerHTML = `
+        <div class="card empty-state">
+          <h2>You haven't entered your Top 10 yet</h2>
+          <p>Add your ranked strengths and your Name / Claim / Aim notes to generate your report.</p>
+          <a href="enter.html" class="btn btn-primary">Enter your Top 10</a>
+        </div>
+      `;
+    } else {
+      content.innerHTML = renderReport(rows);
+    }
+
+    document.getElementById('signout').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await supabase.auth.signOut();
+      window.location.href = 'login.html';
+    });
+
+    // ---- 3. Basic report ----
+    function renderReport(rows) {
+      const domains = ['Executing','Influencing','Relationship Building','Strategic Thinking'];
+      const counts = Object.fromEntries(domains.map(d => [d, 0]));
+      rows.forEach(r => { counts[r.strength_domain] = (counts[r.strength_domain] || 0) + 1; });
+
+      const lastUpdated = rows
+        .map(r => new Date(r.updated_at))
+        .reduce((a, b) => a > b ? a : b)
+        .toLocaleDateString();
+
+      const summary = `
+        <div class="card">
+          <h2>Domain balance</h2>
+          <p style="margin:0;color:var(--c-muted);font-size:0.9rem">
+            How your top 10 distributes across Gallup's four leadership domains.
+          </p>
+          <div class="domain-summary">
+            ${domains.map(d => `
+              <div class="domain-summary__cell">
+                <div class="domain-summary__count">${counts[d]}</div>
+                <div class="domain-summary__label">${d}</div>
+              </div>
+            `).join('')}
+          </div>
+          <p style="margin:12px 0 0;font-size:0.8rem;color:var(--c-muted)">Last updated ${lastUpdated}</p>
+        </div>
+      `;
+
+      const cards = rows.map(r => `
+        <div class="card strength-card domain-${cssDomain(r.strength_domain)}">
+          <div class="strength-card__head">
+            <span class="rank-badge">${r.rank}</span>
+            <span class="strength-card__name">${escapeHtml(r.strength_name)}</span>
+            <span class="strength-card__domain">${escapeHtml(r.strength_domain)}</span>
+          </div>
+          ${section('Name it',  r.name_it)}
+          ${section('Claim it', r.claim_it)}
+          ${section('Aim it',   r.aim_it)}
+        </div>
+      `).join('');
+
+      return summary + cards;
+    }
+
+    function section(label, text) {
+      const filled = text && text.trim().length > 0;
+      return `
+        <div class="strength-card__section">
+          <h4>${label}</h4>
+          <p class="${filled ? '' : 'placeholder'}">${filled ? escapeHtml(text) : 'Not yet captured.'}</p>
+        </div>
+      `;
+    }
+
+    function cssDomain(d) { return d.replace(/\s+/g, '.'); }
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>
